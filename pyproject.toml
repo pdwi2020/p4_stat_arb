@@ -16,8 +16,10 @@ dependencies = [
   "pyarrow",
   "PyYAML",
   "requests",
+  "scikit-learn",
   "scipy",
   "statsmodels",
+  "torch",
   "yfinance",
 ]
 
@@ -26,7 +28,6 @@ dev = [
   "jupyter",
   "pytest",
   "pytest-cov",
-  "scikit-learn",
   "seaborn",
 ]
 

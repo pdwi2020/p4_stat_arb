@@ -1,11 +1,19 @@
-"""Multiple-testing correction utilities for P4."""
+"""Multiple-testing correction utilities for P4.
+
+The module keeps the original family-wise controls used in P4 and extends them
+with lighter-touch false-discovery-rate procedures. BH/BHY are useful when the
+goal is ranking or screening a broad candidate set, while Romano-Wolf retains
+FWER control under dependence at the cost of bootstrap work and lower power.
+"""
 
 from __future__ import annotations
 
 import math
+from typing import Literal
 
 import numpy as np
 import pandas as pd
+from numpy.typing import NDArray
 from scipy import stats
 
 
@@ -112,3 +120,161 @@ def hansen_spa_test(
         "candidate_pvalues": candidate_pvalues,
         "block_size": int(block_size),
     }
+
+
+def _as_1d_float_array(values: NDArray | list[float] | tuple[float, ...]) -> NDArray[np.float64]:
+    array = np.asarray(values, dtype=float)
+    if array.ndim != 1:
+        raise ValueError("Expected a one-dimensional array.")
+    if array.size == 0:
+        return array.astype(float)
+    if not np.all(np.isfinite(array)):
+        raise ValueError("Input contains non-finite values.")
+    return array
+
+
+def _validate_pvalues(pvalues: NDArray | list[float] | tuple[float, ...]) -> NDArray[np.float64]:
+    array = _as_1d_float_array(pvalues)
+    if array.size and (np.any(array < 0.0) or np.any(array > 1.0)):
+        raise ValueError("P-values must lie in [0, 1].")
+    return array
+
+
+def _step_up_adjusted_pvalues(ordered_pvalues: NDArray[np.float64], scale: float) -> NDArray[np.float64]:
+    if ordered_pvalues.size == 0:
+        return ordered_pvalues.astype(float)
+    ranks = np.arange(1, ordered_pvalues.size + 1, dtype=float)
+    adjusted = np.minimum.accumulate((scale * ordered_pvalues.size * ordered_pvalues / ranks)[::-1])[::-1]
+    return np.clip(adjusted, 0.0, 1.0)
+
+
+def _unsort(values: NDArray[np.float64] | NDArray[np.bool_], order: NDArray[np.int_]) -> NDArray:
+    inverse = np.empty_like(order)
+    inverse[order] = np.arange(order.size)
+    return values[inverse]
+
+
+def benjamini_hochberg(
+    pvalues: NDArray | list[float] | tuple[float, ...],
+    alpha: float = 0.05,
+) -> tuple[NDArray[np.bool_], NDArray[np.float64]]:
+    """Benjamini-Hochberg (1995) step-up FDR procedure."""
+
+    if not 0.0 < alpha < 1.0:
+        raise ValueError("alpha must lie in (0, 1).")
+    raw = _validate_pvalues(pvalues)
+    if raw.size == 0:
+        return np.zeros(0, dtype=bool), raw
+
+    order = np.argsort(raw, kind="mergesort")
+    ordered = raw[order]
+    thresholds = alpha * np.arange(1, ordered.size + 1, dtype=float) / ordered.size
+    passing = np.flatnonzero(ordered <= thresholds)
+    reject_sorted = np.zeros(ordered.size, dtype=bool)
+    if passing.size:
+        reject_sorted[: passing[-1] + 1] = True
+    adjusted_sorted = _step_up_adjusted_pvalues(ordered, scale=1.0)
+    return _unsort(reject_sorted, order), _unsort(adjusted_sorted, order)
+
+
+def benjamini_yekutieli(
+    pvalues: NDArray | list[float] | tuple[float, ...],
+    alpha: float = 0.05,
+) -> tuple[NDArray[np.bool_], NDArray[np.float64]]:
+    """Benjamini-Yekutieli (2001) dependency-robust FDR control."""
+
+    if not 0.0 < alpha < 1.0:
+        raise ValueError("alpha must lie in (0, 1).")
+    raw = _validate_pvalues(pvalues)
+    if raw.size == 0:
+        return np.zeros(0, dtype=bool), raw
+
+    harmonic_number = float(np.sum(1.0 / np.arange(1, raw.size + 1, dtype=float)))
+    order = np.argsort(raw, kind="mergesort")
+    ordered = raw[order]
+    thresholds = alpha * np.arange(1, ordered.size + 1, dtype=float) / (ordered.size * harmonic_number)
+    passing = np.flatnonzero(ordered <= thresholds)
+    reject_sorted = np.zeros(ordered.size, dtype=bool)
+    if passing.size:
+        reject_sorted[: passing[-1] + 1] = True
+    adjusted_sorted = _step_up_adjusted_pvalues(ordered, scale=harmonic_number)
+    return _unsort(reject_sorted, order), _unsort(adjusted_sorted, order)
+
+
+def storey_qvalue(
+    pvalues: NDArray | list[float] | tuple[float, ...],
+    lambda_: float = 0.5,
+) -> NDArray[np.float64]:
+    """Storey (2002) q-value estimator.
+
+    This is not an exact rejection rule on its own. It estimates the minimum FDR
+    level at which each hypothesis would be called significant and is therefore a
+    useful ranking proxy alongside BH/BHY.
+    """
+
+    if not 0.0 <= lambda_ < 1.0:
+        raise ValueError("lambda_ must lie in [0, 1).")
+    raw = _validate_pvalues(pvalues)
+    if raw.size == 0:
+        return raw
+
+    denom = max(1.0 - lambda_, np.finfo(float).eps)
+    pi0 = float(min(1.0, np.mean(raw > lambda_) / denom))
+    order = np.argsort(raw, kind="mergesort")
+    ordered = raw[order]
+    q_sorted = _step_up_adjusted_pvalues(ordered, scale=pi0)
+    return _unsort(q_sorted, order)
+
+
+def romano_wolf_stepwise(
+    test_statistics: NDArray | list[float] | tuple[float, ...],
+    null_distribution: NDArray | list[list[float]],
+    alpha: float = 0.05,
+    method: Literal["studentized", "raw"] = "studentized",
+) -> NDArray[np.bool_]:
+    """Romano-Wolf (2005) step-down multiple-testing under dependence.
+
+    The implementation assumes `null_distribution` contains bootstrap draws of
+    the joint test-statistic vector under the null. The procedure is step-down:
+    hypotheses are ordered from strongest to weakest and testing stops at the
+    first non-rejection.
+    """
+
+    if not 0.0 < alpha < 1.0:
+        raise ValueError("alpha must lie in (0, 1).")
+    observed = _as_1d_float_array(test_statistics)
+    if observed.size == 0:
+        return np.zeros(0, dtype=bool)
+
+    bootstrap = np.asarray(null_distribution, dtype=float)
+    if bootstrap.ndim != 2:
+        raise ValueError("null_distribution must be a 2-D bootstrap array.")
+    if bootstrap.shape[1] != observed.size:
+        raise ValueError("null_distribution must have one column per hypothesis.")
+    if bootstrap.shape[0] == 0 or not np.all(np.isfinite(bootstrap)):
+        raise ValueError("null_distribution must contain finite bootstrap draws.")
+    if method not in {"studentized", "raw"}:
+        raise ValueError("method must be 'studentized' or 'raw'.")
+
+    if method == "studentized":
+        scale = bootstrap.std(axis=0, ddof=1)
+        scale = np.where(scale <= 1e-8, 1.0, scale)
+    else:
+        scale = np.ones_like(observed)
+
+    observed_scaled = np.abs(observed / scale)
+    bootstrap_scaled = np.abs(bootstrap / scale)
+    order = np.argsort(observed_scaled)[::-1]
+    active = order.tolist()
+    rejected = np.zeros(observed.size, dtype=bool)
+
+    for hypothesis in order:
+        active_idx = np.asarray(active, dtype=int)
+        bootstrap_max = np.max(bootstrap_scaled[:, active_idx], axis=1)
+        cutoff = float(np.quantile(bootstrap_max, 1.0 - alpha, method="higher"))
+        if observed_scaled[hypothesis] > cutoff:
+            rejected[hypothesis] = True
+            active.remove(int(hypothesis))
+            continue
+        break
+    return rejected

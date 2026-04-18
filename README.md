@@ -104,3 +104,11 @@ src/p4/
 ├── multiple_testing.py  # Bonferroni, White RC, Hansen SPA
 └── pipeline.py          # end-to-end walk-forward orchestrator
 ```
+
+## Wave 2 Extensions
+
+- `capacity.py`: per-pair capacity curves across an AUM grid with linear or square-root slippage.
+- `regime_switch.py`: Gaussian HMM regime fit plus regime-filtered spread trading signals.
+- `neural_ou.py`: small torch-based autoencoder and neural OU estimator for nonlinear spread discovery.
+- `extended_pipeline.py`: regime-aware stat-arb pipeline that layers Wave 2 filtering and capacity on top of the existing data/config stack.
+- `multiple_testing.py`: extended with Benjamini-Hochberg, Benjamini-Yekutieli, Storey q-value, and Romano-Wolf stepwise control.

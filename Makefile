@@ -14,6 +14,9 @@ download:
 run:
 	"$(PYTHON)" -m p4.pipeline --config "$(CONFIG)"
 
+run-extended:
+	"$(PYTHON)" -m p4.extended_pipeline --config "$(CONFIG)"
+
 test:
 	"$(PYTEST)" tests/ -v --cov=src/p4 --cov-report=term-missing
 
