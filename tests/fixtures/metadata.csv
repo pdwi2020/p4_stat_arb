@@ -1,0 +1,9 @@
+ticker,name,asset_type,sector,sub_industry,family,theme_group,mapped_sector,price,adtv_usd
+TCHA,Tech A,equity,Information Technology,Semiconductors,semiconductors,information_technology,Information Technology,97.63220887731885,209620206.7428548
+TCHB,Tech B,equity,Information Technology,Semiconductors,semiconductors,information_technology,Information Technology,100.72325883913994,215431462.4471194
+TCHETF,Tech ETF,etf,Information Technology,Technology ETF,sector_information_technology,sector,Information Technology,211.4978033048976,679125223.850903
+FINA,Finance A,equity,Financials,Banks,banks,financials,Financials,77.75808386460137,150465436.77242747
+FINB,Finance B,equity,Financials,Banks,banks,financials,Financials,85.68187119424819,148793742.0172326
+FINETF,Finance ETF,etf,Financials,Financial ETF,sector_financials,sector,Financials,134.61322186286347,356230046.7670618
+NOIA,Noise A,equity,Utilities,Electric Utilities,electric_utilities,utilities,Utilities,33.243347439328346,31457400.9357048
+NOIB,Noise B,equity,Utilities,Electric Utilities,electric_utilities,utilities,Utilities,57.19074858905509,53128853.38401909

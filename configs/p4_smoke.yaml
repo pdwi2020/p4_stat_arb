@@ -1,0 +1,75 @@
+run_name: real_smoke
+data_mode: real
+strategy_type: cointegration
+
+paths:
+  cache_dir: /Volumes/Crucial X9/data/market_data/p4_smoke
+  results_dir: results
+  fixture_dir: tests/fixtures
+  alpha_trace_dir: docs/alpha_engine_trace
+
+market:
+  data_start: 2019-01-01
+  data_end: 2025-12-31
+  snapshot_period: 3mo
+  price_batch_size: 50
+  etf_universe:
+    - SPY
+    - QQQ
+    - IWM
+    - XLK
+    - XLF
+    - XLE
+    - XLV
+    - SMH
+    - KRE
+    - TLT
+
+selection:
+  max_equities: 12
+  min_price: 5.0
+  min_adtv_usd: 25000000.0
+  min_pair_correlation: 0.55
+  max_pairs_per_family: 4
+  max_baskets_per_family: 2
+
+cointegration:
+  engle_granger_alpha: 0.08
+  johansen_alpha: 0.08
+
+ou:
+  half_life_min_days: 4.0
+  half_life_max_days: 35.0
+
+signal:
+  entry_z: 1.8
+  exit_z: 0.5
+  stop_z: 4.0
+
+backtest:
+  cost_halfspread_bps: 5.0
+  cost_slippage_bps: 3.0
+  borrow_cost_annual_bps: 50.0
+  capacity_adv_fraction: 0.05
+  portfolio_capital_usd: 5000000.0
+
+walkforward:
+  formation_days: 378
+  validation_days: 126
+  test_days: 126
+  step_days: 126
+
+eigenportfolio:
+  pca_components: 15
+  formation_window_days: 252
+  min_half_life_days: 5.0
+  max_half_life_days: 30.0
+  z_entry: 1.5
+  z_exit: 0.5
+  z_stop: 3.0
+
+multiple_testing:
+  n_bootstrap: 200
+  block_length_mode: ou_half_life
+  alpha: 0.05
+  random_seed: 42

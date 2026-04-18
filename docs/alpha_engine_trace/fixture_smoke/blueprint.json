@@ -1,0 +1,25 @@
+{
+  "project": "P4 Statistical Arbitrage Mixed Universe",
+  "run_name": "fixture_smoke",
+  "mixed_universe": "Current S&P 500 constituents plus a fixed ETF list from public sources.",
+  "basket_scope": "3-asset baskets only, expanded from prefiltered pair candidates.",
+  "multiple_testing": "Bonferroni, White Reality Check, and Hansen SPA on out-of-sample daily net returns.",
+  "summary": {
+    "run_name": "fixture_smoke",
+    "data_mode": "fixture",
+    "n_assets": 8,
+    "n_equities": 6,
+    "n_etfs": 2,
+    "n_windows": 4,
+    "n_pair_candidates": 3,
+    "n_basket_candidates": 2,
+    "raw_positive_strategies": 3,
+    "bonferroni_survivors": 0,
+    "spa_survivors": 0,
+    "white_rc_pvalue": 0.07,
+    "portfolio_net_sharpe": 2.3869946262180077,
+    "portfolio_max_drawdown": -0.02754069322553121,
+    "portfolio_total_return": 0.09443794240624492,
+    "results_dir": "/Volumes/Crucial X9/projects/p4_stat_arb/results/fixture_smoke"
+  }
+}

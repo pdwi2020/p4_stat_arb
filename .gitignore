@@ -1,0 +1,11 @@
+data/
+.venv/
+__pycache__/
+*.pyc
+.coverage
+*.egg-info/
+.pytest_cache/
+.DS_Store
+._*
+results/
+.ipynb_checkpoints/

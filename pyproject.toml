@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "p4-stat-arb"
+version = "0.2.0"
+requires-python = ">=3.11,<3.15"
+description = "Mixed-universe statistical arbitrage research with rigorous multiple testing controls."
+readme = "README.md"
+dependencies = [
+  "matplotlib",
+  "numpy",
+  "pandas",
+  "pydantic>=2,<3",
+  "pyarrow",
+  "PyYAML",
+  "requests",
+  "scipy",
+  "statsmodels",
+  "yfinance",
+]
+
+[project.optional-dependencies]
+dev = [
+  "jupyter",
+  "pytest",
+  "pytest-cov",
+  "scikit-learn",
+  "seaborn",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
