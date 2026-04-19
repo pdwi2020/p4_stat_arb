@@ -14,6 +14,8 @@ download:
 run:
 	"$(PYTHON)" -m p4.pipeline --config "$(CONFIG)"
 
+backtest: run
+
 run-extended:
 	"$(PYTHON)" -m p4.extended_pipeline --config "$(CONFIG)"
 

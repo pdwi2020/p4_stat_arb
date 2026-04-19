@@ -6,13 +6,24 @@ The main research question is not "what is the highest Sharpe pair?" It is "how 
 
 ## Verified Status
 
-As of April 10, 2026, the repo is implemented and verified in the shared drive environment at `/Volumes/Crucial X9/alpha_engine/.venv`.
+As of April 19, 2026, the repo has shipped through Week 7 in the shared drive environment at `/Volumes/Crucial X9/alpha_engine/.venv`.
 
-- `make install` succeeds in the shared env.
-- `make test` passes with 15 tests and 90% coverage on `src/p4`.
-- `make download` succeeds for the reduced real-data smoke config and cached 22 assets under `/Volumes/Crucial X9/data/market_data/p4_smoke/`.
-- `make run` succeeds for the reduced real-data smoke config and writes outputs under `results/real_smoke/`.
-- The offline fixture integration path exercises both pairs and baskets; the live smoke universe produced only pair candidates.
+- `make install` succeeds in the shared env
+- `make test` passes with 60 tests (90% coverage on `src/p4`)
+- `make download` and `make run` succeed for the smoke config
+- `make run-extended` runs the regime-aware Wave 2 pipeline
+- Week 5 added Johansen rank test + Kalman-OU; Week 6 added the S&P 500 universe scan with synthetic sub-industry quartiles; Week 7 ran the 4-way OU ablation across 16 validated pairs and updated `memo.md` to 450 lines with honest caveats
+
+The flagship Week 7 result (median net Sharpe per OU method, 16 SP500 pairs) is in the memo:
+
+| Method | Median net Sharpe |
+| --- | ---: |
+| regime-switch | **1.07** |
+| static OU | 0.95 |
+| Kalman-OU | 0.75 |
+| neural OU | 0.36 |
+
+Honest caveat: n=16 is too small for Hansen SPA on method choice. The ranking is suggestive, not conclusive. See `memo.md` for full numbers and `results/sp500_ablation/summary.json` for the underlying aggregates.
 
 ## Live Smoke Result
 
@@ -89,6 +100,15 @@ The AlphaEngine trace for the latest run is written to `docs/alpha_engine_trace/
 - The ETF taxonomy is deliberately simple and fixed in config.
 - The basket path is implemented, but the verified live smoke run did not surface any basket candidates in the reduced universe.
 - Public-data quality is sufficient for a research MVP, not for institutional stat-arb claims.
+
+## Reproducibility
+
+- Python: `3.14.3` (shared env at `/Volumes/Crucial X9/alpha_engine/.venv`)
+- Seed: `seed: 42` in `configs/p4_config.yaml` and `configs/p4_smoke.yaml`
+- Data: cached under `/Volumes/Crucial X9/data/market_data/p4_smoke/`; SP500 ablation reads the Russell-3000 panel at `/Volumes/Crucial X9/projects/p1_factor_research/data/panel_russell3000/`
+- Hardware: CPU-only; smoke run <2 min, full SP500 ablation ~15 min on M2
+- Entry points: `make run` (default), `make backtest` (alias of run), `make run-extended` (regime + Wave 2), `make test`
+- Tests: `make test` — 60 passing
 
 ## Repo Map
 
