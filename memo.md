@@ -146,6 +146,278 @@ There is also a structural lesson in the zero-basket outcome. The basket engine 
 - Basket support is implemented, but the live smoke run did not surface any basket candidates.
 - `pip` in the shared drive environment still emits pre-existing invalid-distribution warnings unrelated to P4 itself.
 
+## Methodological Additions: Johansen and Kalman-OU
+Week 5 added two pieces of methodology that matter once the
+project moves beyond the smallest pair screen.
+The first is a fuller Johansen cointegration module for
+multi-asset panels.
+The second is a Kalman-filter OU estimator that relaxes the
+assumption that one fixed `(kappa, mu)` pair governs the entire
+formation sample.
+
+The original memo already noted that 3-asset baskets use a
+Johansen rank-1 eigenvector.
+Week 5 makes that machinery explicit and more general through
+`src/p4/johansen.py`.
+That matters because pairwise Engle-Granger remains the right
+first screen for two assets, but it does not answer the main
+question for `N > 2` assets.
+For a basket, the issue is not just whether one chosen spread
+looks stationary.
+It is how many independent long-run equilibrium relations exist
+inside the panel.
+Johansen's likelihood-based rank test
+(Johansen 1988, 1991; Lutkepohl 2005) addresses that directly.
+If the cointegration rank is `r`, then there are `r`
+independent linear combinations of the `N` log-price series that
+pull the system back toward its long-run relationship.
+Rank `0` means no cointegration.
+Rank `1` gives one tradable stationary direction.
+Higher rank means there is more than one stationary direction in
+the same panel.
+
+The implementation exposes both standard likelihood-ratio tests.
+The trace statistic tests the null `rank <= r` with
+`-T * sum_{i=r+1}^N log(1 - lambda_i)`.
+The max-eigenvalue statistic tests `rank = r` against
+`rank = r + 1` with `-T * log(1 - lambda_{r+1})`.
+`johansen_test()` returns both statistic vectors, their critical
+values, and rank estimates under each criterion.
+`johansen_basket_weights()` then takes the leading
+cointegrating eigenvector, normalizes it to unit gross absolute
+weight, and emits a basket spread that the rest of the pipeline
+can treat like any other spread.
+`vecm_fit()` adds the corresponding VECM alpha/beta
+decomposition when the adjustment-loadings view is more useful
+than a single tradable weight vector.
+This is the right extension if the repo is asked to handle
+sector baskets, triplets, or larger same-theme panels rather
+than only plain pairs.
+
+The other Week 5 addition addresses a different weakness.
+The baseline `OUEstimator` is an OLS fit of one discrete-time OU
+model over the full formation window.
+That is acceptable if the spread is genuinely stationary with
+stable parameters.
+It is not acceptable when the spread drifts across regimes.
+Under drift, OLS compresses the sample into one average
+`kappa` and one average `mu`.
+That average can be biased toward the center of the window and
+therefore too slow or too fast for the most recent regime.
+
+`KalmanOU`, implemented in `src/p4/kalman_ou.py`, follows the
+state-space treatment in Harvey (1989) and Durbin and Koopman
+(2012).
+Conceptually it models the latent OU parameter vector
+`theta_t = (kappa_t, mu_t)` as a random walk and updates that
+state as each new spread observation arrives.
+The code carries the equivalent intercept/slope
+representation internally and converts it back to the familiar
+OU quantities, so the user-facing result is still an OU fit,
+just not a time-invariant one.
+The filter therefore recovers a time-varying path rather than
+one averaged estimate.
+
+The practical value is that this was built as a drop-in
+replacement rather than as a separate branch of the pipeline.
+`KalmanOU.fit(spread)` returns the same core keys as
+`OUEstimator`: `kappa`, `mu`, `sigma`, and `half_life`.
+It also returns `kappa_path` and `mu_path` for inspection, but
+downstream code does not need to know that.
+The existing selection, validation, and backtest layers can
+therefore accept the Kalman fit without rewiring their
+interfaces.
+The unit tests in `tests/test_kalman_ou.py` cover both the
+stable and drifting cases.
+Most importantly, the regime-change test simulates a jump from
+`kappa = 0.5` to `kappa = 2.0` and checks the filtered path
+roughly 500 steps into the second regime.
+By that point the path is closer to `2.0` than to `0.5`,
+whereas a single OLS fit over the same 2,000-point sample would
+have averaged the two regimes to something near `1.25`.
+That is exactly the use case for carrying Kalman-OU as a
+drop-in estimator in the repo rather than only as a research
+side branch.
+
+## S&P 500 Universe Scan: 4-Way OU Ablation
+Week 6 uses the new estimators on a larger and less toy-like
+cross section.
+The goal was not to overwrite the smoke-universe result.
+The goal was to exercise the Week 5 machinery on a broader
+equity panel and make the four OU estimators directly
+comparable on the same candidate set.
+That work lives in `src/p4/sp500_universe.py` and
+`src/p4/run_sp500_ablation.py`, with outputs under
+`results/sp500_ablation/`.
+
+The universe is a practical proxy, not a literal point-in-time
+S&P 500 membership file.
+The loader takes the top 500 names by `weight_pct` from the
+Russell-3000 IWV-style holdings file and treats that as a
+current large-cap universe.
+`results/sp500_ablation/pair_universe.csv` therefore contains
+500 tickers spread across sectors, but it should be described
+plainly as a proxy.
+The source file does not include real GICS sub-industry labels,
+so the loader synthesizes `sub_industry` from within-sector
+weight quartiles via `f"{sector}_q{q}"`, with `q` in
+`{1, 2, 3, 4}`.
+This is not real GICS sub-industry data.
+It is a defensible "similar-size names within a sector" bucket
+that gives the existing `PairSelector` a meaningful grouping
+signal without pretending to know more taxonomy than the source
+actually supplies.
+The same paragraph needs the survivorship caveat made explicit:
+this is today's top-500 large-cap proxy, not point-in-time
+membership.
+
+Within that proxy universe, the sector-aware grouping logic
+produces 3,390 screenable candidate pairs.
+`PairSelector` still does what the core repo does elsewhere:
+rank by within-group return correlation, then run the pair
+through Engle-Granger and the OU half-life band on the
+formation spread.
+The Week 6 output also records a Johansen trace statistic for
+each surviving two-asset panel, so the result table carries a
+multivariate diagnostic alongside the pairwise screen.
+In practical terms, the cointegration-and-OU filter leaves
+16 surviving pairs in `results/sp500_ablation/pair_candidates.csv`.
+That is still a small family, but unlike the smoke run it is
+large enough to perform a controlled method comparison on a
+nontrivial set of spreads.
+
+The ablation itself is simple by design.
+For each of the 16 surviving pairs, Week 6 computes one common
+in-sample spread and then fits four OU variants to that same
+series:
+
+- static OU via `OUEstimator`
+- Kalman OU via `KalmanOU`
+- neural OU via `p4.neural_ou`
+- regime-switch OU via `p4.regime_switch`
+
+Each fitted model then produces the same trading signal rule:
+`sign(mu - spread)`.
+That choice is intentionally plain.
+It removes signal-design variation from the comparison, so the
+ablation is about the parameter estimators rather than about
+different execution overlays.
+For every pair-method combination the script records gross
+Sharpe, net Sharpe, turnover, `kappa`, and half-life in
+`results/sp500_ablation/ou_ablation.csv`.
+Net Sharpe is computed as gross Sharpe minus
+`0.0005 * turnover * 252`, which is a reduced 5 bps turnover
+penalty rather than the full smoke-run cost stack.
+The resulting file has 64 rows, exactly `16 pairs * 4 methods`.
+
+At the aggregate level the `summary.json` values are:
+
+- static: median `kappa = 0.0248`, median net Sharpe `0.949`,
+  mean net Sharpe `1.055`, `n_pairs = 16`
+- kalman: median `kappa = 0.113`, median net Sharpe `0.749`,
+  mean net Sharpe `0.941`, `n_pairs = 16`
+- neural: median `kappa = 0.042`, median net Sharpe `0.357`,
+  mean net Sharpe `0.419`, `n_pairs = 16`
+- regime: median `kappa = 0.049`, median net Sharpe `1.068`,
+  mean net Sharpe `0.975`, `n_pairs = 16`
+
+Rendered in the memo's shorter format, the result table is:
+
+| Method  | Median kappa | Median net Sharpe | Mean net Sharpe | n_pairs |
+| ---     | ---:         | ---:              | ---:            | ---:    |
+| static  | 0.025        | 0.95              | 1.06            | 16      |
+| kalman  | 0.113        | 0.75              | 0.94            | 16      |
+| neural  | 0.042        | 0.36              | 0.42            | 16      |
+| regime  | 0.049        | **1.07**          | 0.98            | 16      |
+
+The main read on that table is not that one estimator has been
+proved superior. The sample is too small for that.
+What the table does show is that the four estimators are now
+comparable under a common interface and a common signal rule,
+which is the main methodological step the repo lacked before Week
+5 and Week 6.
+The interpretation is still worth stating directly:
+
+- Regime-switch OU has the best median net Sharpe at `1.068`,
+  narrowly ahead of static OU at `0.949`.
+- That edge is suggestive, not dispositive.
+  With only `n = 16` pairs, the confidence intervals overlap
+  heavily, and no Hansen-SPA-style multiple-testing correction has
+  yet been applied to the method choice itself.
+- Kalman-OU posts the highest median `kappa` at `0.113`.
+  The filter is pulling noisy OLS fits toward a tighter and more
+  reactive mean-reversion speed, but the drop in median net
+  Sharpe from `0.949` to `0.749` suggests that on these roughly
+  70 percent in-sample windows it may be over-correcting rather
+  than helping.
+- Neural OU underperforms badly, with median net Sharpe `0.357`.
+  The likely explanation is not that neural OU is impossible in
+  principle.
+  The likely explanation is that a PyTorch model fit on roughly
+  750 in-sample observations per pair is undertrained and
+  over-parameterized for this use.
+  That makes it a debugging target, not a verdict on the whole
+  class of models.
+
+The survivor list also lands in the sectors one would expect a
+sector-aware mean-reversion screen to surface.
+Representative pairs include `AEP/DUK` in utilities, `DD/PPG` in
+materials, `TFC/USB` in banks, and `EGP/ESS` in REITs.
+Because each surviving pair is evaluated by four estimators,
+those representative names appear four times each in the
+64-row ablation table.
+At the pair level the list is broader than those four examples,
+but the tilt is still toward classic mean-reversion neighborhoods:
+utilities, materials, banks and other financials, and REITs.
+That is a useful sanity check.
+It suggests the sector-aware grouping logic is not producing
+random cross-sector noise; it is surfacing the parts of the
+equity universe where relative-value behavior is at least
+plausible.
+
+## Honest Caveats on the SP500 Run
+The SP500 ablation should be read as a feasibility test, not as
+a tournament bracket with a winner.
+Sixteen pairs is a small `N`.
+No serious claim that "method X beats method Y" should be made
+from this table alone, and certainly not a claim that would
+survive a Hansen SPA.
+The output is useful because it shows that the four pipelines can
+be fit, scored, and compared on the same pair universe with the same
+signal rule.
+That is a methodological milestone.
+It is not yet a publishable inference about which estimator is
+best.
+
+The survivorship bias is also doubled here.
+First, the universe is the current top-500 by weight rather than
+point-in-time index membership.
+Second, the run uses only the recent two-year price window that
+was available for the panel exercise.
+A real research claim would need point-in-time membership,
+delisting handling, and something closer to a decade of history so
+that the method comparison is not dominated by one recent market
+regime.
+
+The cost treatment is intentionally simplified.
+Week 6 nets only `5 bps * turnover * 252` from gross Sharpe.
+There is no explicit borrow model, no slippage model, and no
+market-impact term.
+That is acceptable for a quick ablation because the objective is
+to compare estimators under one uniform penalty.
+It is not the cost model that should be cited externally.
+For any outward-facing claim, the right cost stack is still the
+earlier smoke-run one: 5 bps half-spread, 3 bps slippage, and
+50 bps/year borrow on short notional.
+
+The durable finding worth keeping from Week 6 is therefore
+methodological rather than promotional.
+P4 now has one unified OU ablation interface across four
+estimators, and that interface can be run on any pair universe the
+repo can generate.
+The SP500 proxy run is simply the first production exercise of
+that interface.
+
 ## Why the Repo Is Still Useful
 
 Despite the weak live result, the repo is useful because it now contains the full research machinery needed for a more serious stat-arb pass:
